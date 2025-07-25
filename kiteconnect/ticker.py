@@ -11,6 +11,7 @@ import six
 import sys
 import time
 import json
+import base64
 import struct
 import logging
 import threading
@@ -99,6 +100,19 @@ class KiteTickerClientProtocol(WebSocketClientProtocol):
         if self.factory.debug:
             log.debug("pong => {}".format(response))
 
+    def startProxyConnect(self):
+        """
+        Connect to explicit proxy.
+        """
+        # construct proxy connect HTTP request
+        proxy_auth = 'Basic {}'.format(base64.b64encode('{}:{}'.format(self.factory.proxy_user, self.factory.proxy_password).encode('utf8')).decode('utf8'))
+        request = 'CONNECT {}:{} HTTP/1.1\x0d\x0a'.format(self.factory.host, self.factory.port)
+        request += 'Host: {}:{}\x0d\x0a'.format(self.factory.host, self.factory.port)
+        request += 'Proxy-Authorization: {}\x0d\x0a'.format(proxy_auth)
+        request += '\x0d\x0a'
+        self.log.debug("{request}", request=request)
+        self.sendData(request.encode('utf8'))
+
     """
     Custom helper and exposed methods.
     """
@@ -155,7 +169,8 @@ class KiteTickerClientFactory(WebSocketClientFactory, ReconnectingClientFactory)
         self.on_connect = None
         self.on_reconnect = None
         self.on_noreconnect = None
-
+        self.proxy_user = kwargs.pop('proxy_user')
+        self.proxy_password = kwargs.pop('proxy_password')
         super(KiteTickerClientFactory, self).__init__(*args, **kwargs)
 
     def startedConnecting(self, connector):  # noqa
@@ -493,13 +508,15 @@ class KiteTicker(object):
     def _user_agent(self):
         return (__title__ + "-python/").capitalize() + __version__
 
-    def connect(self, threaded=False, disable_ssl_verification=False, proxy=None):
+    def connect(self, threaded=False, disable_ssl_verification=False, proxy=None, proxy_user=None, proxy_password=None):
         """
         Establish a websocket connection.
 
         - `threaded` is a boolean indicating if the websocket client has to be run in threaded mode or not
         - `disable_ssl_verification` disables building ssl context
         - `proxy` is a dictionary with keys `host` and `port` which denotes the proxy settings
+        - `proxy_user` is a string that tells us the username for the proxy service we’re using to log in.
+        - `proxy_password` is a string that tells us the password for the proxy service we’re using to log in.
         """
         # Custom headers
         headers = {
